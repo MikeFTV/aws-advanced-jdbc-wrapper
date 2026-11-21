@@ -657,7 +657,7 @@ These work anywhere with anything:
 - `dev` — developer/debug helper
 - `executionTime` — logs JDBC method execution time
 - `logQuery` — logs SQL statements executed
-- `dataCache` — local result cache for matching SQL
+- `dataCache` — local result cache for matching SQL; caches only with the PostgreSQL JDBC driver, MySQL Connector/J or MariaDB Connector/J
 
 ---
 
@@ -1206,15 +1206,17 @@ Encrypts/decrypts database column values transparently using AWS KMS. Universall
 | `dataKeyCacheExpirationMs` | `3600000` | Data key TTL (1 h). |
 | `encryptionMetadataSchema` | `encrypt` | DB schema name for encryption metadata tables. |
 
-### 5.21 `dataCache` — Local query result cache (universal)
+### 5.21 `dataCache` — Local query result cache (PostgreSQL JDBC, MySQL Connector/J, MariaDB Connector/J)
 
 Caches SQL `ResultSet`s in-process for queries matching a regex.
 
 | Name | Default | Description |
 |---|---|---|
-| `dataCacheTriggerCondition` | (none) | Regex matched against the full SQL text; matching queries are cached. |
+| `dataCacheTriggerCondition` | (none) | Regex matched against the full SQL text; matching `Statement.executeQuery(String)` results are cached, subject to the isolation rules below. |
 | `dataCacheTtlMs` | `300000` | Available since version 4.5.0. How long a cached result stays valid. Nothing invalidates a cached result on write, so this bounds staleness. `0` disables expiration. |
-| `dataCacheMaxSize` | `1000` | Available since version 4.5.0. Maximum number of distinct SQL statements held in the cache. `0` means no limit. |
+| `dataCacheMaxSize` | `1000` | Available since version 4.5.0. Maximum number of distinct cache keys held in the cache. `0` means no limit. |
+
+> Cached results are keyed on the SQL text plus the host, port, catalog, schema, `user` and authorization session state (role, `search_path`, current database) of the connection, so connections with different database identities do not share them. This is best-effort hardening, not a security boundary. Caching requires the PostgreSQL JDBC driver, MySQL Connector/J or MariaDB Connector/J, and is turned off for a connection after untracked session changes such as `SET app.tenant_id = ...` or a batch. Only `Statement.executeQuery(String)` results are cached.
 
 > This is a read-through cache with **no invalidation**. Do not recommend it for data an application reads back after writing. For a shared, per-query opt-in cache use `remoteQueryCache` instead. See [Data Local Cache Plugin](./using-the-jdbc-driver/using-plugins/UsingTheDataCachePlugin.md).
 
@@ -1850,6 +1852,7 @@ Pool-specific options use the `cp-` prefix and map to `com.zaxxer.hikari.HikariC
 - **`leastConnections` reader strategy** — required. The strategy throws if used without an internal pool because it has no per-host connection counts to compare.
 - **Single-cluster apps with HikariCP already wrapping the data source** — usually unnecessary. The external pool already gives connection reuse. The internal pool is most useful when the wrapper itself needs to maintain pools across multiple targets (i.e., R/W splitting).
 - **Multiple clusters in one app** — the internal pool keys by `clusterId`, so each cluster gets its own pool, much like external Hikari instances would.
+- **`dataCache`, or `remoteQueryCache` with `cacheEnableDatabaseMultiTenancy=true`** — the internal pool returns sessions without resetting them, so a setting such as `SET app.tenant_id` that one connection applied is still in effect for the next, and caching is enabled again. Do not run untracked session SQL on internal-pool connections with these caches.
 
 **Limiting connection age:** set `cp-MaxLifetime` (HikariCP, milliseconds, default 30 min) or `cp-MaxConnectionAge` (c3p0, seconds) to cap how long a physical connection lives in the internal pool. Do this whenever the `connectionLifetime` plugin is used with the internal pool. The plugin evicts an expired connection from the pool, but a replacement taken from the pool may already be older than `connectionLifetimeMs`, because the plugin starts timing a connection when it receives it.
 

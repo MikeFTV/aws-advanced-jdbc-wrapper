@@ -172,8 +172,10 @@ MySQL, and MariaDB are currently supported. Other dialects, or a supported diale
 unavailable, bypass both cache reads and writes.
 
 Enabling this protection reads authorization state when a physical connection is established or
-switched, after recognized authorization-state changes, and at transaction completion. Normal
-cache hits and cache misses do not issue an authorization-state query. MySQL servers that do not
+switched with auto-commit on, after recognized authorization-state changes made with auto-commit
+on and outside a transaction, after a `COMMIT` or `ROLLBACK` statement run with auto-commit on,
+and when auto-commit is turned back on while the state is unknown. Normal cache hits and cache
+misses do not issue an authorization-state query. MySQL servers that do not
 support `CURRENT_ROLE()` require one fallback query when authorization state is refreshed.
 Enabling this protection also reduces cacheability: the bypass and disable rules below apply, a
 connection that disables caching does not use the cache again, and each authorization context has
@@ -221,6 +223,11 @@ failed operations mark the state untracked. The original JDBC exception is prese
 An unknown authorization state bypasses caching until a later refresh succeeds. An untracked state
 cannot be represented safely and remains disabled for that wrapper connection. Returning a
 connection to an application connection pool does not by itself clear the untracked state.
+With auto-commit off, the plugin does not query authorization state after a connection
+change, and the state stays unknown until auto-commit is turned back on. An authorization-state
+change inside a transaction opened with `BEGIN` or `START TRANSACTION` also leaves the state
+unknown until the `COMMIT` or `ROLLBACK` statement that ends it. A commit or rollback that follows
+no authorization change keeps the current state.
 When database multi-tenancy protection is disabled, the plugin preserves legacy behavior:
 callable and multi-statement queries remain eligible for caching, while transaction queries bypass
 cache reads but may write their database results to the cache.
@@ -271,9 +278,10 @@ cache reads but may write their database results to the cache.
 > `cacheKeyPrefix`, or cache cluster.
 >
 > Internal connection pools (`connectionPoolType`) return the database session to the pool
-> without resetting it, and the next wrapper connection starts with caching enabled again. Do not
-> use them with statements that disable caching, such as PostgreSQL `set_config(...)` or
-> MySQL/MariaDB `SET @variable`.
+> without resetting it, and the next wrapper connection starts with caching enabled again. The same
+> applies to an application server's XA connection pool and to a pooling target data source such
+> as `PGPoolingDataSource`. Do not use them with statements that disable caching, such as
+> PostgreSQL `set_config(...)` or MySQL/MariaDB `SET @variable`.
 >
 > Anyone who can connect to the cache cluster can read and overwrite every cached result.
 > `cacheKeyPrefix` only separates keys; it does not restrict access. Protect the cache cluster as

@@ -31,4 +31,4 @@ The following plugins operate independently of connection management and are com
 | [dev](./using-plugins/UsingTheDeveloperPlugin.md)                           | Developer utility plugin for debugging and diagnostics.                          |
 | executionTime                                                               | Logs the time taken to execute any JDBC method.                                  |
 | logQuery                                                                    | Tracks and logs the SQL statements to be executed.                               |
-| dataCache                                                                   | Caches results locally from SQL queries matching a configured trigger condition. |
+| [dataCache](./using-plugins/UsingTheDataCachePlugin.md)                     | Caches results locally from SQL queries matching a configured trigger condition. Caches only with the PostgreSQL JDBC driver, MySQL Connector/J or MariaDB Connector/J. |

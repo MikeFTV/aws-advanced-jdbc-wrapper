@@ -3,6 +3,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/#semantic-versioning-200).
 
+## [Unreleased]
+### :bug: Fixed
+- Fixed the Data Local Cache Plugin cache key to include the connection's host, port, catalog, schema, `user` and authorization session state, to give each cache hit its own cursor, and to raise an error that occurs while reading a result instead of returning a partial result ([documentation](https://github.com/aws/aws-advanced-jdbc-wrapper/blob/main/docs/using-the-jdbc-driver/using-plugins/UsingTheDataCachePlugin.md#how-cached-results-are-isolated)).
+### :crab: Changed
+- The Data Local Cache Plugin now caches only with the PostgreSQL JDBC driver, MySQL Connector/J or MariaDB Connector/J, and bypasses the cache on connections that ran session SQL it cannot track, such as `SET app.tenant_id = ...`, a batch or a `CallableStatement` ([documentation](https://github.com/aws/aws-advanced-jdbc-wrapper/blob/main/docs/using-the-jdbc-driver/using-plugins/UsingTheDataCachePlugin.md#how-cached-results-are-isolated)).
+- The Remote Query Cache Plugin with `cacheEnableDatabaseMultiTenancy` now keeps caching across commits that follow no authorization change, and no longer queries session state on a connection with auto-commit off. Its authorization warnings are now logged once per connection by `software.amazon.jdbc.plugin.cache.CacheAuthorizationTracker` ([documentation](https://github.com/aws/aws-advanced-jdbc-wrapper/blob/main/docs/using-the-jdbc-driver/using-plugins/UsingTheRemoteQueryCachePlugin.md#security-scope-and-application-requirements)).
+
 ## [4.7.0] - 2026-11-19
 ### :magic_wand: Added
 - Added the Host Monitoring Plugin v3 (`efm3`), which registers each connection with its host monitor once instead of on every JDBC call, so per-call overhead no longer takes shared locks or allocates and monitor memory scales with the number of connections rather than with call volume. In the wrapper's benchmarks, which use a simulated target driver with many connections to one host, `efm3` handled about 2.7 times as many calls per millisecond as `efm2` at 8 or more threads (685-737 versus 246-268), and with 64 connections making 1,000 calls per second each it held 5-6 MB of heap instead of about 125 MB. `efm` and `efm2` are unchanged, and `efm2` remains the default ([PR #2237](https://github.com/aws/aws-advanced-jdbc-wrapper/pull/2237), [documentation](https://github.com/aws/aws-advanced-jdbc-wrapper/blob/main/docs/using-the-jdbc-driver/using-plugins/UsingTheHostMonitoringPlugin.md#host-monitoring-plugin-v3)).
