@@ -382,14 +382,16 @@ public final class KmsTestUtility {
     new SecureRandom().nextBytes(hmacKey);
     final int newKeyId;
     try (PreparedStatement stmt = conn.prepareStatement(
-        "INSERT INTO " + prefix + "key_storage (name, master_key_arn, encrypted_data_key, hmac_key, key_spec) "
-            + "VALUES (?, ?, ?, ?, ?)" + (isPg ? " RETURNING id" : ""),
+        "INSERT INTO " + prefix
+            + "key_storage (name, master_key_arn, encrypted_data_key, hmac_key, key_spec, key_id) "
+            + "VALUES (?, ?, ?, ?, ?, ?)" + (isPg ? " RETURNING id" : ""),
         isPg ? Statement.NO_GENERATED_KEYS : Statement.RETURN_GENERATED_KEYS)) {
       stmt.setString(1, name);
       stmt.setString(2, masterKeyArn);
       stmt.setString(3, encryptedDataKey);
       stmt.setBytes(4, hmacKey);
       stmt.setString(5, "AES_256");
+      stmt.setString(6, java.util.UUID.randomUUID().toString());
       if (isPg) {
         try (ResultSet rs = stmt.executeQuery()) {
           rs.next();
