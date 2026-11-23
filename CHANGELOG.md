@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 ### :bug: Fixed
 - Fixed the ADFS and Okta authentication plugins reusing a cached IAM token for a connection that supplies a different identity provider password. The password is part of the token cache key as a fingerprint, not in plain text ([documentation](https://github.com/aws/aws-advanced-jdbc-wrapper/blob/main/docs/using-the-jdbc-driver/using-plugins/UsingTheFederatedAuthPlugin.md)).
+- Fixed the AWS Secrets Manager plugins sharing a cached secret between connections that read it with different AWS credentials or through a different `secretsManagerEndpoint` ([documentation](https://github.com/aws/aws-advanced-jdbc-wrapper/blob/main/docs/using-the-jdbc-driver/using-plugins/UsingTheAwsSecretsManagerPlugin.md)).
 
 ## [4.7.0] - 2026-11-19
 ### :magic_wand: Added

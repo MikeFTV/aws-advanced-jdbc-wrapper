@@ -37,6 +37,7 @@ import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
@@ -52,6 +53,7 @@ import software.amazon.jdbc.PropertyDefinition;
 import software.amazon.jdbc.authentication.AwsCredentialsManager;
 import software.amazon.jdbc.util.CoreServicesContainer;
 import software.amazon.jdbc.util.FullServicesContainer;
+import software.amazon.jdbc.util.IamAuthUtils;
 import software.amazon.jdbc.util.Messages;
 import software.amazon.jdbc.util.Pair;
 import software.amazon.jdbc.util.RegionUtils;
@@ -140,6 +142,7 @@ public class AwsSecretsManagerConnectionPlugin extends AbstractConnectionPlugin 
       Pattern.compile("^arn:aws:secretsmanager:(?<region>[^:\\n]*):[^:\\n]*:([^:/\\n]*[:/])?(.*)$");
 
   final Pair<String /* secretId */, String /* region */> secretKey;
+  private final Properties props;
   private final BiFunction<HostSpec, Region, SecretsManagerClient>
       secretsManagerClientFunc;
   private final Function<String, GetSecretValueRequest> getSecretValueRequestFunc;
@@ -271,6 +274,7 @@ public class AwsSecretsManagerConnectionPlugin extends AbstractConnectionPlugin 
     this.connectRetryIntervalMs =
         AwsSecretsManagerConnectionPlugin.SECRETS_MANAGER_CONNECT_RETRY_INTERVAL_MS_PROPERTY.getLong(props);
     this.secretKey = Pair.create(secretId, region.id());
+    this.props = props;
 
     this.secretsManagerClientFunc = secretsManagerClientFunc;
     this.getSecretValueRequestFunc = getSecretValueRequestFunc;
@@ -494,7 +498,7 @@ public class AwsSecretsManagerConnectionPlugin extends AbstractConnectionPlugin 
       this.fetchCredentialsCounter.inc();
     }
 
-    this.secret = this.servicesContainer.getStorageService().get(Secret.class, this.secretKey);
+    this.secret = this.servicesContainer.getStorageService().get(Secret.class, this.getSecretCacheKey(hostSpec));
 
     try {
       boolean fetched = false;
@@ -517,6 +521,40 @@ public class AwsSecretsManagerConnectionPlugin extends AbstractConnectionPlugin 
   }
 
   /**
+   * Returns the key the secret is cached under. Besides the secret ID and region, the key holds the
+   * Secrets Manager endpoint and the AWS identity that reads the secret, so a connection never uses a
+   * secret that its own AWS credentials did not fetch.
+   *
+   * @param hostSpec the host the credentials are being resolved for.
+   * @return the cache key.
+   */
+  String getSecretCacheKey(final HostSpec hostSpec) {
+    final AwsCredentialsProvider credentialsProvider =
+        AwsCredentialsManager.getProvider(hostSpec, this.props, Region.of(this.secretKey.getValue2()));
+    return buildSecretCacheKey(
+        this.secretKey.getValue1(),
+        this.secretKey.getValue2(),
+        ENDPOINT_PROPERTY.getString(this.props),
+        IamAuthUtils.getCredentialsIdentity(credentialsProvider));
+  }
+
+  static String buildSecretCacheKey(
+      final String secretId,
+      final String region,
+      final @Nullable String endpoint,
+      final @Nullable String credentialsIdentity) {
+    final StringBuilder key = new StringBuilder();
+    for (final @Nullable String part : new @Nullable String[] {secretId, region, endpoint, credentialsIdentity}) {
+      if (part == null) {
+        key.append("-1:");
+      } else {
+        key.append(part.length()).append(':').append(part);
+      }
+    }
+    return key.toString();
+  }
+
+  /**
    * Fetches the latest credentials from the AWS Secrets Manager service and stores them in the shared cache.
    * Service-specific exceptions are translated into a {@link SQLException} (or {@link RuntimeException} for a
    * misconfigured endpoint), preserving the original error handling.
@@ -529,7 +567,7 @@ public class AwsSecretsManagerConnectionPlugin extends AbstractConnectionPlugin 
     try {
       final Secret fetched = fetchLatestCredentials(hostSpec);
       if (fetched != null) {
-        this.servicesContainer.getStorageService().set(this.secretKey, fetched);
+        this.servicesContainer.getStorageService().set(this.getSecretCacheKey(hostSpec), fetched);
       }
       return fetched;
     } catch (final SecretsManagerException | JsonProcessingException exception) {

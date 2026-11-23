@@ -53,6 +53,9 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.postgresql.util.PSQLException;
 import org.postgresql.util.PSQLState;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.secretsmanager.SecretsManagerClient;
 import software.amazon.awssdk.services.secretsmanager.model.GetSecretValueRequest;
@@ -64,6 +67,7 @@ import software.amazon.jdbc.HostSpecBuilder;
 import software.amazon.jdbc.JdbcCallable;
 import software.amazon.jdbc.PluginServiceImpl;
 import software.amazon.jdbc.PropertyDefinition;
+import software.amazon.jdbc.authentication.AwsCredentialsManager;
 import software.amazon.jdbc.dialect.Dialect;
 import software.amazon.jdbc.dialect.DialectManager;
 import software.amazon.jdbc.exceptions.ExceptionHandler;
@@ -78,6 +82,7 @@ import software.amazon.jdbc.states.SessionStateService;
 import software.amazon.jdbc.targetdriverdialect.TargetDriverDialect;
 import software.amazon.jdbc.util.CoreServicesContainer;
 import software.amazon.jdbc.util.FullServicesContainer;
+import software.amazon.jdbc.util.IamAuthUtils;
 import software.amazon.jdbc.util.Messages;
 import software.amazon.jdbc.util.Pair;
 import software.amazon.jdbc.util.storage.StorageService;
@@ -107,7 +112,11 @@ public class AwsSecretsManagerConnectionPluginTest {
   private static final String PG_ACCESS_ERROR = "28P01";
   private static final int TEST_PORT = 5432;
   private static final long EXPIRATION_TIME = 900;
-  private static final Pair<String, String> SECRET_CACHE_KEY = Pair.create(TEST_SECRET_ID, TEST_REGION);
+  // The cached secret is keyed on the AWS identity that read it, so tests sign with fixed credentials.
+  private static final AwsCredentialsProvider TEST_CREDENTIALS_PROVIDER =
+      StaticCredentialsProvider.create(AwsBasicCredentials.create("AKIDTESTKEY", "test-secret-key"));
+  private static final String SECRET_CACHE_KEY = AwsSecretsManagerConnectionPlugin.buildSecretCacheKey(
+      TEST_SECRET_ID, TEST_REGION, null, IamAuthUtils.getCredentialsIdentity(TEST_CREDENTIALS_PROVIDER));
   private static final AwsSecretsManagerConnectionPlugin.Secret TEST_SECRET =
       new AwsSecretsManagerConnectionPlugin.Secret(
           TEST_USERNAME,
@@ -146,6 +155,7 @@ public class AwsSecretsManagerConnectionPluginTest {
   @BeforeEach
   public void init() throws SQLException {
     closeable = MockitoAnnotations.openMocks(this);
+    AwsCredentialsManager.setCustomHandler((hostSpec, props) -> TEST_CREDENTIALS_PROVIDER);
 
     REGION_PROPERTY.set(TEST_PROPS, TEST_REGION);
     SECRET_ID_PROPERTY.set(TEST_PROPS, TEST_SECRET_ID);
@@ -178,6 +188,7 @@ public class AwsSecretsManagerConnectionPluginTest {
 
   @AfterEach
   void cleanUp() throws Exception {
+    AwsCredentialsManager.resetCustomHandler();
     closeable.close();
     CoreServicesContainer.getInstance().getStorageService().clear(Secret.class);
     TEST_PROPS.clear();
@@ -783,5 +794,21 @@ public class AwsSecretsManagerConnectionPluginTest {
         Arguments.of(missingId),
         Arguments.of(missingRegion)
     );
+  }
+
+  @Test
+  public void testSecretCacheKeySeparatesAwsIdentityAndEndpoint() {
+    final String key = this.plugin.getSecretCacheKey(TEST_HOSTSPEC);
+    assertEquals(SECRET_CACHE_KEY, key);
+
+    // A principal that may not read the secret must not get the copy that another principal cached.
+    AwsCredentialsManager.setCustomHandler((hostSpec, props) ->
+        StaticCredentialsProvider.create(AwsBasicCredentials.create("AKIDOTHERKEY", "other-secret-key")));
+    assertNotEquals(key, this.plugin.getSecretCacheKey(TEST_HOSTSPEC));
+
+    AwsCredentialsManager.setCustomHandler((hostSpec, props) -> TEST_CREDENTIALS_PROVIDER);
+    assertNotEquals(key, AwsSecretsManagerConnectionPlugin.buildSecretCacheKey(
+        TEST_SECRET_ID, TEST_REGION, "https://vpce.example.com",
+        IamAuthUtils.getCredentialsIdentity(TEST_CREDENTIALS_PROVIDER)));
   }
 }
