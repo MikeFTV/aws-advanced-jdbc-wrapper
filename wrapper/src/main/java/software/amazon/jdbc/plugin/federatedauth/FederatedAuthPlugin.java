@@ -27,6 +27,7 @@ import software.amazon.jdbc.JdbcMethod;
 import software.amazon.jdbc.PropertyDefinition;
 import software.amazon.jdbc.plugin.TokenInfo;
 import software.amazon.jdbc.plugin.iam.IamTokenUtility;
+import software.amazon.jdbc.util.CredentialFingerprint;
 import software.amazon.jdbc.util.FullServicesContainer;
 import software.amazon.jdbc.util.IamAuthUtils;
 import software.amazon.jdbc.util.Messages;
@@ -169,6 +170,7 @@ public class FederatedAuthPlugin extends BaseSamlAuthPlugin {
         IDP_PORT.getString(props),
         RELAYING_PARTY_ID.getString(props),
         IDP_USERNAME.getString(props),
+        CredentialFingerprint.of(IDP_PASSWORD.getString(props)),
         IAM_ROLE_ARN.getString(props),
         IAM_IDP_ARN.getString(props)};
   }
