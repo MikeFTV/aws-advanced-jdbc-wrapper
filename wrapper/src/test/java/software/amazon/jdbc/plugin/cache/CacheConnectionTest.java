@@ -842,4 +842,33 @@ public class CacheConnectionTest {
     field.setAccessible(true);
     return field.get(obj);
   }
+
+  private static CacheConnection connectionWith(final String user, final String password, final boolean useSsl) {
+    final Properties props = new Properties();
+    props.setProperty("wrapperPlugins", "remoteQueryCache");
+    props.setProperty("cacheEndpointAddrRw", "cache.example.com:6379");
+    props.setProperty("cacheUsername", user);
+    props.setProperty("cachePassword", password);
+    props.setProperty("cacheUseSSL", String.valueOf(useSsl));
+    return new CacheConnection(props);
+  }
+
+  @Test
+  void test_poolKey_separatesCredentialsAndTls() {
+    final String key = connectionWith("tenant_a", "pw_a", true).getPoolKey(false, "cache.example.com:6379");
+
+    assertEquals(key, connectionWith("tenant_a", "pw_a", true).getPoolKey(false, "cache.example.com:6379"));
+    // Clients authenticate when they are created, so a shared pool would reuse another user's clients.
+    assertNotEquals(key, connectionWith("tenant_b", "pw_a", true).getPoolKey(false, "cache.example.com:6379"));
+    assertNotEquals(key, connectionWith("tenant_a", "pw_b", true).getPoolKey(false, "cache.example.com:6379"));
+    assertNotEquals(key, connectionWith("tenant_a", "pw_a", false).getPoolKey(false, "cache.example.com:6379"));
+    assertNotEquals(key, connectionWith("tenant_a", "pw_a", true).getPoolKey(true, "cache.example.com:6379"));
+  }
+
+  @Test
+  void test_poolKey_doesNotContainPassword() {
+    final String key = connectionWith("tenant_a", "pw_secret_a", true).getPoolKey(false, "cache.example.com:6379");
+
+    assertFalse(key.contains("pw_secret_a"));
+  }
 }

@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 ### :bug: Fixed
 - Fixed the c3p0 internal connection pool sharing one pool per host between database users. Pools are now keyed on the host URL and the user, as the HikariCP internal pool is by default ([documentation](https://github.com/aws/aws-advanced-jdbc-wrapper/blob/main/docs/using-the-jdbc-driver/using-plugins/UsingTheReadWriteSplittingPlugin.md#internal-connection-pooling)).
+- Fixed the Remote Query Cache Plugin sharing Valkey client pools between connections that use different cache credentials or TLS settings for the same cache endpoint. Pools are now keyed on the endpoint and those settings, with the cache password included as a fingerprint rather than in plain text ([documentation](https://github.com/aws/aws-advanced-jdbc-wrapper/blob/main/docs/using-the-jdbc-driver/using-plugins/UsingTheRemoteQueryCachePlugin.md#cache-connection-pooling)).
 
 ## [4.7.0] - 2026-11-19
 ### :magic_wand: Added

@@ -42,6 +42,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -54,6 +55,7 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import software.amazon.jdbc.AwsWrapperProperty;
 import software.amazon.jdbc.PropertyDefinition;
+import software.amazon.jdbc.util.CredentialFingerprint;
 import software.amazon.jdbc.util.FullServicesContainer;
 import software.amazon.jdbc.util.Messages;
 import software.amazon.jdbc.util.ResourceLock;
@@ -360,8 +362,7 @@ public class CacheConnection {
       int port = Integer.parseInt(hostnameAndPort[1]);
       String host = hostnameAndPort[0];
 
-      // Appending RW and RO tag to the server address to make it unique in case RO and RW has same endpoint
-      String poolKey = (isRead ? "RO:" : "RW:") + serverAddr;
+      String poolKey = this.getPoolKey(isRead, serverAddr);
       GenericObjectPool<BaseClient> pool = endpointToPoolRegistry.get(poolKey);
 
       if (pool == null) {
@@ -399,6 +400,37 @@ public class CacheConnection {
       LOGGER.log(Level.WARNING, errorMsg, e);
       throw new RuntimeException(errorMsg, e);
     }
+  }
+
+  /**
+   * Returns the key of the shared client pool for the given server. Clients authenticate when they are
+   * created, so the key includes every setting that changes how a client connects and authenticates:
+   * connections that use different credentials or TLS settings for the same server get separate pools.
+   * The password is included as a {@link CredentialFingerprint}, not in plain text.
+   */
+  String getPoolKey(final boolean isRead, final String serverAddr) {
+    final StringBuilder key = new StringBuilder();
+    // The RO and RW tags keep the pools apart when both roles use the same endpoint.
+    appendPoolKeyPart(key, isRead ? "RO" : "RW");
+    appendPoolKeyPart(key, serverAddr);
+    appendPoolKeyPart(key, String.valueOf(this.useSSL));
+    appendPoolKeyPart(key, this.cacheTlsCaCertBytes == null
+        ? null
+        : CredentialFingerprint.of(Base64.getEncoder().encodeToString(this.cacheTlsCaCertBytes)));
+    appendPoolKeyPart(key, String.valueOf(this.iamAuthEnabled));
+    appendPoolKeyPart(key, this.cacheIamRegion);
+    appendPoolKeyPart(key, this.cacheName);
+    appendPoolKeyPart(key, this.cacheUsername);
+    appendPoolKeyPart(key, CredentialFingerprint.of(this.cachePassword));
+    return key.toString();
+  }
+
+  private static void appendPoolKeyPart(final StringBuilder key, final @Nullable String value) {
+    if (value == null) {
+      key.append("-1:");
+      return;
+    }
+    key.append(value.length()).append(':').append(value);
   }
 
   private static GenericObjectPoolConfig<BaseClient> createPoolConfig() {
